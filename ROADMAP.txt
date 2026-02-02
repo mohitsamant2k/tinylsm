@@ -1,0 +1,157 @@
+================================================================================
+                        TinyLSM - Future Work Roadmap
+================================================================================
+
+HIGH PRIORITY (Core Features)
+--------------------------------------------------------------------------------
+
+1. COMPACTION
+   - Merge multiple SSTables into fewer, larger ones
+   - Remove deleted keys (tombstones) to reclaim space
+   - Implement tiered or leveled compaction strategies
+   - Background compaction without blocking reads/writes
+
+2. BLOOM FILTERS
+   - Probabilistic data structure to skip SSTables that don't contain a key
+   - Dramatically improves read performance (avoid unnecessary disk reads)
+   - Store bloom filter in SSTable footer
+   - Configurable false positive rate
+
+3. BLOCK CACHE (LRU)
+   - Cache frequently accessed SSTable blocks in memory
+   - Reduces disk I/O for hot keys
+   - Configurable cache size
+   - LRU eviction policy
+
+
+PERFORMANCE IMPROVEMENTS
+--------------------------------------------------------------------------------
+
+4. COMPRESSION
+   - Snappy or LZ4 block compression
+   - Reduces disk usage and I/O bandwidth
+   - Configurable compression level
+   - Per-block compression
+
+5. PARALLEL COMPACTION
+   - Background goroutines for compaction
+   - Non-blocking writes during compaction
+   - Compaction priority scheduling
+   - Rate limiting to avoid I/O spikes
+
+6. WRITE BATCHING
+   - Atomic batch writes (multiple Put/Delete in one operation)
+   - Better performance for bulk inserts
+   - WriteBatch API:
+     batch := db.NewWriteBatch()
+     batch.Put(key1, value1)
+     batch.Put(key2, value2)
+     batch.Delete(key3)
+     batch.Commit()
+
+
+ADVANCED FEATURES
+--------------------------------------------------------------------------------
+
+7. RANGE QUERIES / ITERATORS
+   - Scan operations with start and end keys
+   - Forward and reverse iteration
+   - Example API:
+     iter := db.NewIterator(startKey, endKey)
+     for iter.Valid() {
+         fmt.Println(iter.Key(), iter.Value())
+         iter.Next()
+     }
+     iter.Close()
+
+8. SNAPSHOTS (MVCC)
+   - Read-only point-in-time views of the database
+   - Multi-version concurrency control with timestamps
+   - Consistent reads without blocking writes
+   - Example API:
+     snapshot := db.GetSnapshot()
+     defer snapshot.Release()
+     value := snapshot.Get(key)
+
+9. TRANSACTIONS
+   - Begin/Commit/Rollback support
+   - Optimistic or pessimistic locking
+   - ACID guarantees
+   - Example API:
+     txn := db.BeginTransaction()
+     txn.Put(key, value)
+     txn.Commit() // or txn.Rollback()
+
+10. TTL (Time-To-Live)
+    - Auto-expire keys after a duration
+    - Clean up expired keys during compaction
+    - Example API:
+      db.PutWithTTL(key, value, 24*time.Hour)
+
+
+OPERATIONS & MONITORING
+--------------------------------------------------------------------------------
+
+11. METRICS & STATS
+    - Read/write latency histograms
+    - Compaction statistics (bytes written, files merged)
+    - Cache hit/miss rates
+    - Prometheus/OpenMetrics export
+
+12. BACKUP & RESTORE
+    - Hot backup without stopping writes
+    - Point-in-time recovery
+    - Incremental backups
+    - Example API:
+      db.Backup("/path/to/backup")
+      db.Restore("/path/to/backup")
+
+13. CONFIGURABLE COMPARATOR
+    - Custom key ordering (reverse, numeric, case-insensitive)
+    - User-defined comparison functions
+    - Built-in comparators for common use cases
+
+
+SUGGESTED IMPLEMENTATION ROADMAP
+--------------------------------------------------------------------------------
+
+Phase 1: Read Performance
+  - Bloom Filters
+  - Block Cache (LRU)
+  - Estimated effort: 1-2 weeks
+
+Phase 2: Storage Efficiency
+  - Compaction (Leveled)
+  - Compression (Snappy/LZ4)
+  - Estimated effort: 2-3 weeks
+
+Phase 3: Query Capabilities
+  - Range Iterators
+  - Write Batching
+  - Estimated effort: 1-2 weeks
+
+Phase 4: Advanced Features
+  - Snapshots (MVCC)
+  - TTL support
+  - Estimated effort: 2-3 weeks
+
+Phase 5: Enterprise Features
+  - Transactions
+  - Backup & Restore
+  - Metrics & Monitoring
+  - Estimated effort: 3-4 weeks
+
+
+RESOURCES & REFERENCES
+--------------------------------------------------------------------------------
+
+- LevelDB Implementation: https://github.com/google/leveldb/blob/main/doc/impl.md
+- RocksDB Wiki: https://github.com/facebook/rocksdb/wiki
+- Bloom Filter Paper: https://dl.acm.org/doi/10.1145/362686.362692
+- Skip List Paper: https://15721.courses.cs.cmu.edu/spring2018/papers/08-oltpindexes1/pugh-skiplists-cacm1990.pdf
+- LSM-Tree Paper: https://www.cs.umb.edu/~pon} 
+
+
+================================================================================
+                              Happy Coding! 🚀
+================================================================================
