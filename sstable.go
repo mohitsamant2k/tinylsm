@@ -39,11 +39,15 @@ type SSTableWriter struct {
 	index       []IndexEntry // Index entries for all blocks
 	firstKey    []byte       // First key of current block
 	entryCount  int          // Entries in current block
+	totalKeys   int          // Total keys added (for bloom filter sizing)
+	bloomFilter *BloomFilter // Bloom filter for fast negative lookups
+	bitsPerKey  int          // Bits per key for bloom filter
 	comparator  Comparator
 }
 
 // NewSSTableWriter creates a writer for a new SSTable
-func NewSSTableWriter(path string, comparator Comparator) (*SSTableWriter, error) {
+// bitsPerKey controls bloom filter size (0 = no bloom filter)
+func NewSSTableWriter(path string, comparator Comparator, bitsPerKey int) (*SSTableWriter, error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSTable: %w", err)
@@ -54,15 +58,29 @@ func NewSSTableWriter(path string, comparator Comparator) (*SSTableWriter, error
 	}
 
 	return &SSTableWriter{
-		file:       file,
-		writer:     bufio.NewWriter(file),
-		comparator: comparator,
-		index:      make([]IndexEntry, 0),
+		file:        file,
+		writer:      bufio.NewWriter(file),
+		comparator:  comparator,
+		index:       make([]IndexEntry, 0),
+		bloomFilter: nil, // Will be created lazily when we know the size
+		bitsPerKey:  bitsPerKey,
 	}, nil
 }
 
 // Add adds a key-value pair (must be called in sorted order!)
 func (w *SSTableWriter) Add(key, value []byte, deleted bool) error {
+	// Track total keys for bloom filter
+	w.totalKeys++
+
+	// Add key to bloom filter (lazy initialization, skip if bitsPerKey is 0)
+	if w.bitsPerKey > 0 {
+		if w.bloomFilter == nil {
+			// Estimate: start with 1000 keys
+			w.bloomFilter = NewBloomFilter(1000, w.bitsPerKey)
+		}
+		w.bloomFilter.Add(key)
+	}
+
 	// Remember first key of block
 	if w.entryCount == 0 {
 		w.firstKey = make([]byte, len(key))
@@ -170,12 +188,30 @@ func (w *SSTableWriter) Finish() error {
 
 	indexSize := w.offset - indexOffset
 
+	// Write bloom filter block
+	bloomOffset := w.offset
+	var bloomSize uint64 = 0
+	if w.bloomFilter != nil {
+		bloomData := w.bloomFilter.Encode()
+		if _, err := w.writer.Write(bloomData); err != nil {
+			return err
+		}
+		bloomSize = uint64(len(bloomData))
+		w.offset += bloomSize
+	}
+
 	// Write footer
-	// [indexOffset:8][indexSize:8][magic:8]
+	// [indexOffset:8][indexSize:8][bloomOffset:8][bloomSize:8][magic:8]
 	if err := binary.Write(w.writer, binary.LittleEndian, indexOffset); err != nil {
 		return err
 	}
 	if err := binary.Write(w.writer, binary.LittleEndian, indexSize); err != nil {
+		return err
+	}
+	if err := binary.Write(w.writer, binary.LittleEndian, bloomOffset); err != nil {
+		return err
+	}
+	if err := binary.Write(w.writer, binary.LittleEndian, bloomSize); err != nil {
 		return err
 	}
 	if err := binary.Write(w.writer, binary.LittleEndian, SSTableMagic); err != nil {
@@ -200,11 +236,12 @@ func (w *SSTableWriter) Close() error {
 
 // SSTableReader reads from an SSTable file
 type SSTableReader struct {
-	file       *os.File
-	size       int64
-	index      []IndexEntry
-	comparator Comparator
-	path       string
+	file        *os.File
+	size        int64
+	index       []IndexEntry
+	bloomFilter *BloomFilter // Bloom filter for fast negative lookups
+	comparator  Comparator
+	path        string
 }
 
 // OpenSSTable opens an existing SSTable for reading
@@ -243,7 +280,41 @@ func OpenSSTable(path string, comparator Comparator) (*SSTableReader, error) {
 
 // readFooter reads the footer and index
 func (r *SSTableReader) readFooter() error {
-	// Footer is last 24 bytes: [indexOffset:8][indexSize:8][magic:8]
+	// Try new footer format first: 40 bytes
+	// [indexOffset:8][indexSize:8][bloomOffset:8][bloomSize:8][magic:8]
+	if r.size >= 40 {
+		footer := make([]byte, 40)
+		if _, err := r.file.ReadAt(footer, r.size-40); err != nil {
+			return err
+		}
+
+		magic := binary.LittleEndian.Uint64(footer[32:40])
+		if magic == SSTableMagic {
+			// New format with bloom filter
+			indexOffset := binary.LittleEndian.Uint64(footer[0:8])
+			indexSize := binary.LittleEndian.Uint64(footer[8:16])
+			bloomOffset := binary.LittleEndian.Uint64(footer[16:24])
+			bloomSize := binary.LittleEndian.Uint64(footer[24:32])
+
+			// Read bloom filter if present
+			if bloomSize > 0 {
+				bloomData := make([]byte, bloomSize)
+				if _, err := r.file.ReadAt(bloomData, int64(bloomOffset)); err != nil {
+					return err
+				}
+				bf, err := DecodeBloomFilter(bloomData)
+				if err != nil {
+					return fmt.Errorf("failed to decode bloom filter: %w", err)
+				}
+				r.bloomFilter = bf
+			}
+
+			return r.readIndex(indexOffset, indexSize)
+		}
+	}
+
+	// Fall back to old footer format: 24 bytes (for backward compatibility)
+	// [indexOffset:8][indexSize:8][magic:8]
 	if r.size < 24 {
 		return fmt.Errorf("SSTable too small")
 	}
@@ -260,6 +331,12 @@ func (r *SSTableReader) readFooter() error {
 	if magic != SSTableMagic {
 		return fmt.Errorf("invalid SSTable: bad magic number")
 	}
+
+	return r.readIndex(indexOffset, indexSize)
+}
+
+// readIndex reads the index block
+func (r *SSTableReader) readIndex(indexOffset, indexSize uint64) error {
 
 	// Read index block
 	indexData := make([]byte, indexSize)
@@ -298,6 +375,16 @@ func (r *SSTableReader) readFooter() error {
 	}
 
 	return nil
+}
+
+// MayContain checks if a key might be in the SSTable using the bloom filter.
+// Returns true if the key might exist, false if it definitely doesn't.
+// If no bloom filter is present, always returns true (conservative).
+func (r *SSTableReader) MayContain(key []byte) bool {
+	if r.bloomFilter == nil {
+		return true // No bloom filter, must check SSTable
+	}
+	return r.bloomFilter.MayContain(key)
 }
 
 // Get looks up a key in the SSTable
@@ -527,11 +614,12 @@ func (it *SSTableIterator) IsDeleted() bool {
 
 // FlushMemtableToSSTable writes a memtable to a new SSTable file
 // Uses atomic rename for crash safety
-func FlushMemtableToSSTable(mem *Memtable, path string) error {
+// bitsPerKey controls bloom filter size (0 = no bloom filter)
+func FlushMemtableToSSTable(mem *Memtable, path string, bitsPerKey int) error {
 	// Write to temp file first
 	tempPath := path + ".tmp"
 
-	writer, err := NewSSTableWriter(tempPath, nil)
+	writer, err := NewSSTableWriter(tempPath, nil, bitsPerKey)
 	if err != nil {
 		return err
 	}

@@ -21,14 +21,19 @@ type DBOptions struct {
 
 	// SyncWrites ensures durability on every write (slower)
 	SyncWrites bool
+
+	// BloomBitsPerKey is the number of bits per key for bloom filters
+	// Higher values = lower false positive rate but more memory
+	BloomBitsPerKey int
 }
 
 // DefaultOptions returns sensible defaults
 func DefaultOptions(dir string) *DBOptions {
 	return &DBOptions{
-		Dir:          dir,
-		MemtableSize: 4 * 1024 * 1024, // 4MB
-		SyncWrites:   false,
+		Dir:             dir,
+		MemtableSize:    4 * 1024 * 1024, // 4MB
+		SyncWrites:      false,
+		BloomBitsPerKey: 10, // ~1% false positive rate
 	}
 }
 
@@ -239,7 +244,13 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	}
 
 	// 3. Check SSTables (newest to oldest)
+	// Use bloom filter to skip SSTables that definitely don't have the key
 	for _, sst := range db.sstables {
+		// Bloom filter check: skip if key definitely not in this SSTable
+		if !sst.MayContain(key) {
+			continue
+		}
+
 		if value, deleted, found := sst.Get(key); found {
 			if deleted {
 				return nil, ErrNotFound
@@ -312,7 +323,7 @@ func (db *DB) doFlush() error {
 	db.nextSSTableID++
 
 	// Flush memtable to SSTable (uses atomic rename internally)
-	if err := FlushMemtableToSSTable(db.immutable, sstPath); err != nil {
+	if err := FlushMemtableToSSTable(db.immutable, sstPath, db.opts.BloomBitsPerKey); err != nil {
 		return fmt.Errorf("flush failed: %w", err)
 	}
 

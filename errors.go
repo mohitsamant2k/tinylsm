@@ -20,4 +20,7 @@ var (
 
 	// ErrDatabaseClosed is an alias for ErrClosed (deprecated)
 	ErrDatabaseClosed = ErrClosed
+
+	// ErrCorruptedData is returned when data is corrupted
+	ErrCorruptedData = errors.New("corrupted data")
 )

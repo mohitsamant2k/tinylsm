@@ -12,7 +12,7 @@ func TestSSTableWriteRead(t *testing.T) {
 	path := filepath.Join(dir, "test.sst")
 
 	// Write SSTable
-	writer, err := NewSSTableWriter(path, nil)
+	writer, err := NewSSTableWriter(path, nil, 10)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestSSTableWithDeletes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.sst")
 
-	writer, err := NewSSTableWriter(path, nil)
+	writer, err := NewSSTableWriter(path, nil, 10)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestSSTableIterator(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.sst")
 
-	writer, err := NewSSTableWriter(path, nil)
+	writer, err := NewSSTableWriter(path, nil, 10)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestSSTableMultipleBlocks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.sst")
 
-	writer, err := NewSSTableWriter(path, nil)
+	writer, err := NewSSTableWriter(path, nil, 10)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestFlushMemtableToSSTable(t *testing.T) {
 	mem.Delete([]byte("cherry")) // Add a tombstone
 
 	// Flush to SSTable
-	if err := FlushMemtableToSSTable(mem, path); err != nil {
+	if err := FlushMemtableToSSTable(mem, path, 10); err != nil {
 		t.Fatalf("Failed to flush: %v", err)
 	}
 
@@ -306,7 +306,7 @@ func TestSSTableEmptyFile(t *testing.T) {
 	path := filepath.Join(dir, "empty.sst")
 
 	// Create empty SSTable
-	writer, err := NewSSTableWriter(path, nil)
+	writer, err := NewSSTableWriter(path, nil, 10)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
