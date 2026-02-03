@@ -11,11 +11,11 @@ HIGH PRIORITY (Core Features)
    - Implement tiered or leveled compaction strategies
    - Background compaction without blocking reads/writes
 
-2. BLOOM FILTERS
-   - Probabilistic data structure to skip SSTables that don't contain a key
-   - Dramatically improves read performance (avoid unnecessary disk reads)
-   - Store bloom filter in SSTable footer
-   - Configurable false positive rate
+2. BLOOM FILTERS ✅ COMPLETED
+   - [DONE] Probabilistic data structure to skip SSTables that don't contain a key
+   - [DONE] Dramatically improves read performance (avoid unnecessary disk reads)
+   - [DONE] Store bloom filter in SSTable footer
+   - [DONE] Configurable false positive rate (BloomBitsPerKey option)
 
 3. BLOCK CACHE (LRU)
    - Cache frequently accessed SSTable blocks in memory
@@ -116,7 +116,7 @@ SUGGESTED IMPLEMENTATION ROADMAP
 --------------------------------------------------------------------------------
 
 Phase 1: Read Performance
-  - Bloom Filters
+  - Bloom Filters ✅ DONE
   - Block Cache (LRU)
   - Estimated effort: 1-2 weeks
 
